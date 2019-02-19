@@ -12,6 +12,8 @@ from matplotlib.colors import Normalize
 
 import os
 
+from datetime import date
+
 
 external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css']
 
@@ -79,6 +81,11 @@ county_names = [geojson['features'][k]['properties']['CountyName'] for k in rang
 df = pd.read_json('./data/all_depositions.json')
 
 df['creation_date_period'] = pd.PeriodIndex(df['creation_date'], freq='d')
+
+df['creation_date_parsed'] = df['creation_date'].map(
+    lambda x: date(int(x.split('-')[0]), int(x.split('-')[1]), int(x.split('-')[2])) if isinstance(x, str) else x
+)
+
 df['creation_year'] = df['creation_date'].str.slice(start=0, stop=4)
 df['creation_year'] = df['creation_year'].fillna('Unknown')
 
@@ -93,6 +100,12 @@ counties_counts = counts.drop('Unknown')
 
 counties_counts.sort_index(inplace=True)
 
+dates_counts = df['creation_date_parsed'].value_counts()
+dates_counts.sort_index(inplace=True)
+
+dates = dates_counts.index.tolist()
+print(dates)
+dates_c = [dates_counts[d] for d in dates]
 
 colormap = 'Greens'
 cmin = counties_counts.min()
@@ -122,30 +135,35 @@ layers = ([dict(sourcetype = 'geojson',
              opacity=1
             ) for k in range(n_counties)]
         )
-          
+
+  
 
 app.layout = html.Div(children=[
     html.H1(children='1641 Depositions'),
 
     html.Div(id='row', className='row', children=[
 
-        # html.Div([
-        #     dcc.Graph(
-        #         id='depositions-hist',
-        #         figure={
-        #             'data': [go.Histogram(
-        #                 x=df['creation_year'],
-        #                 autobinx=True)],
-        #             'layout': {}
-        #         }
-        #     )], 
-        #     className='six columns'),
+        html.Div([
+            dcc.Graph(
+                id='depositions-timeline',
+                figure={
+                    'data': [go.Scatter(
+                        x=dates,
+                        y=dates_c,
+                        opacity = 0.8)],
+                    'layout': go.Layout(
+                        autosize=False,
+                        width=800,
+                        height=400)
+                }
+            )], 
+            className='six columns'),
 
         
 
         html.Div([
             dcc.Graph(
-                id='depositions-hist-2',
+                id='depositions-map',
                 figure={
                     'data': [go.Scattermapbox(
                         lat=lats,
