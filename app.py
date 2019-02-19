@@ -289,6 +289,11 @@ def update_map(relayoutData):
     [Input('depositions-map', 'clickData')])
 
 def update_timeline(clickData):
+    if clickData and 'points' in clickData:
+        clicked_county = clickData['points'][0]['customdata']
+        print('Clicked on %s' % clickData['points'][0]['customdata'])
+        ddf = df[df['deponent_county'] == clicked_county]
+        return create_timeline(ddf)
     return create_timeline(df)
 
 
