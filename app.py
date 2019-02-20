@@ -4,6 +4,9 @@ import dash_core_components as dcc
 import dash_html_components as html
 from dash.dependencies import Input, Output, State
 
+import dash_table
+
+
 import plotly.graph_objs as go
 import pandas as pd
 import json
@@ -13,6 +16,10 @@ import networkx as nx
 import numpy as np
 from matplotlib import cm
 from matplotlib.colors import Normalize
+
+from Levenshtein import ratio
+from scipy.spatial.distance import pdist, squareform
+
 
 import os
 
@@ -43,6 +50,7 @@ def initialize():
     df = pd.read_json('./data/all_depositions.json')
     n_counties = len(geojson['features'])
 
+    #Data amends/conversions
     #Dates
     df['creation_date_period'] = pd.PeriodIndex(df['creation_date'], freq='d')
 
@@ -55,9 +63,143 @@ def initialize():
     #Places
     df.deponent_county = df.deponent_county.fillna('Unknown')
 
-    return df    
+    #Generate persons graph
 
-df = initialize()
+    name_counter = dict()
+    people_list = df['people_list'].tolist()
+    names_list = []
+    person2indx = {}
+    indx2role = {}
+    for i, dep_part in enumerate(people_list):
+        names = []
+        for person in dep_part:
+            person_str = ''
+            forename = ''
+            surname = ''
+            if 'forename' in person and person['forename'] != '*':
+                forename = person['forename'].lower()
+            else:
+                forename = 'Unknown'
+            
+            if 'surname' in person and person['surname'] != '*':
+                surname = person['surname'].lower()
+            else:
+                surname = 'Unknown'
+
+            person_str = forename + ' ' + surname
+
+
+            if person_str not in person2indx:
+                idx = len(person2indx)
+                person_dict = dict({
+                    'forename' : forename,
+                    'surname' : surname,
+                    'fullname' : person_str,
+                    'depositions' : [i],
+                    'count' : 1,
+                    'roles' :{i: person['role']},
+                    'idx': idx
+                })
+                name_counter[person_str] = person_dict
+                person2indx[person_str] = idx
+                indx2role[idx] = {i : person['role']}
+            else:
+                name_counter[person_str]['depositions'].append(i)
+                name_counter[person_str]['roles'][i] = person['role']
+                name_counter[person_str]['count'] += 1
+                idx = person2indx[person_str]
+                indx2role[idx][i] = person['role']
+
+            names.append(person_str)
+        names_list.append(names)
+
+    indx2person = {v:k for k,v in person2indx.items()}
+
+    print('Processed %s distinct names' % (len(indx2person.keys())))
+    # print(name_counter.most_common(40))
+
+    # names = list(person2indx.keys())
+    # print(names)
+
+    # transformed_names = np.array(names).reshape(-1,1)
+    # print(transformed_names)
+
+    # print(transformed_names.shape)
+
+    # distance_matrix = pdist(transformed_names, lambda x,y: 1 - ratio(x[0], y[0]))
+
+    # print(squareform(distance_matrix))
+
+    
+    #Persons graph
+
+    # G = nx.Graph()
+    # for i, dep_names in enumerate(names_list):
+    #     for person_a, person_b in itertools.combinations(dep_names, 2):
+    #         G.add_edge(person2indx[person_a], person2indx[person_b], deposition=i)
+
+    return df, name_counter
+
+df, name_counter = initialize()
+
+
+name_counts = [( v['idx'],
+                 v['fullname'], 
+                 v['forename'], 
+                 v['surname'], 
+                 v['count'],
+                 v['depositions']
+                 ) for v in name_counter.values()]
+
+
+names_counter_df = pd.DataFrame(name_counts, columns=['idx', 
+                                                      'fullname',
+                                                      'forename',
+                                                      'surname',
+                                                      'appearances',
+                                                      'depositions'])
+# names_counter_df = names_counter_df.rename(columns={'index' : 'name', 0 : 'appearances'})
+names_counter_df.sort_values(by=['appearances'], ascending=False, inplace=True)
+
+print(names_counter_df.dtypes)
+
+app.layout = html.Div(children=[
+    html.H3(children='The 1641 Depositions'),
+
+    html.Div(className='row', children=[
+        html.Div(dcc.Graph(
+                        id='timeline'),
+            className='four columns'),        
+
+        html.Div(dcc.Graph(
+                        id='map'), 
+            className='four columns'),
+
+        html.Div(dash_table.DataTable(
+                        id='table',
+                        columns=[{"name" : i, "id": i} for i in names_counter_df.columns[2:5]],
+                        filtering=True,
+                        row_selectable="multi",
+                        data=names_counter_df.to_dict("rows"),
+                        style_table={
+                            'maxHeight': '300px',
+                            'overflowY': 'scroll',
+                            'border': 'thin lightgrey solid'
+                        }),
+            className='four columns')
+    ]),
+
+    # html.Div(className='row', children=[
+    #     html.Div(dcc.Graph(
+    #                     id='network'),
+    #         className='eight columns'),        
+    # ]),
+
+    html.Div(className='row', children=[
+        html.Div(id='debug-div',
+            className='twelve columns')        
+    ]),
+])
     
 
 def create_timeline(dff):
@@ -230,11 +372,11 @@ def create_map(dff):
                         accesstoken=mapbox_access_token,
                         bearing=0,
                         center=dict(
-                            lat=53.5,
+                            lat=53.4,
                             lon=-8
                         ),
                         pitch=0,
-                        zoom=5.1,
+                        zoom=4.9,
                         style = 'light'
                     ),
 
@@ -322,40 +464,16 @@ def create_graph(dff, update=False):
         'layout': go.Layout(
             height=300,
             hovermode='closest',
+            margin = dict(l=0, r=0, b=0, t=0),
             xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
             yaxis=dict(showgrid=False, zeroline=False, showticklabels=False))
             
     }
 
 
-app.layout = html.Div(children=[
-    html.H3(children='The 1641 Depositions'),
-
-    html.Div(className='row', children=[
-
-        html.Div(dcc.Graph(
-                        id='depositions-timeline'),
-            className='four columns'),        
-
-        html.Div(dcc.Graph(
-                        id='depositions-map'), 
-            className='four columns')
-    ]),
-
-    html.Div(className='row', children=[
-        html.Div(dcc.Graph(
-                        id='depositions-network'),
-            className='eight columns'),        
-    ]),
-    html.Div(className='row', children=[
-            html.Div(id='debug-div',
-                className='twelve columns')        
-    ]),
-])
-
 @app.callback(
-    Output('depositions-map', 'figure'),
-    [Input('depositions-timeline', 'relayoutData')])
+    Output('map', 'figure'),
+    [Input('timeline', 'relayoutData')])
 
 def update_map(relayoutData):
     print(relayoutData)
@@ -376,8 +494,8 @@ def update_map(relayoutData):
         return create_map(df)
 
 @app.callback(
-    Output('depositions-timeline', 'figure'),
-    [Input('depositions-map', 'clickData')])
+    Output('timeline', 'figure'),
+    [Input('map', 'clickData')])
 
 def update_timeline(clickData):
     if clickData and 'points' in clickData:
@@ -387,35 +505,42 @@ def update_timeline(clickData):
         return create_timeline(ddf)
     return create_timeline(df)
 
+# @app.callback(
+#     Output('network', 'figure'),
+#     [Input('timeline', 'relayoutData')])
+
+# def update_network(relayoutData):
+#     print(relayoutData)
+#     if relayoutData and ('xaxis.range[0]' in relayoutData or 'xaxis.range' in relayoutData):
+#         # print(selectedData['points'][0]['x'])
+#         if 'xaxis.range[0]' in relayoutData:
+#             start_date = relayoutData['xaxis.range[0]'].split(" ")[0]
+#             end_date = relayoutData['xaxis.range[1]'].split(" ")[0]
+#         else:
+#             start_date = relayoutData['xaxis.range'][0].split(" ")[0]
+#             end_date = relayoutData['xaxis.range'][1].split(" ")[0]
+#         print(start_date, end_date)
+#         dff = df[(df['creation_date_parsed'] >= date_string_to_date(start_date)) & \
+#         (df['creation_date_parsed'] <= date_string_to_date(end_date))]
+#         # print(dff)
+#         return create_graph(dff, update=True)
+#     else:
+#         return create_graph(df)
+
 @app.callback(
-    Output('depositions-network', 'figure'),
-    [Input('depositions-timeline', 'relayoutData')])
+    Output('debug-div', 'children'),
+    [Input('timeline', 'relayoutData'),
+    Input('map', 'clickData'),
+    Input('table', 'derived_virtual_data'),
+    Input('table', 'selected_rows')])
 
-def update_network(relayoutData):
-    print(relayoutData)
-    if relayoutData and ('xaxis.range[0]' in relayoutData or 'xaxis.range' in relayoutData):
-        # print(selectedData['points'][0]['x'])
-        if 'xaxis.range[0]' in relayoutData:
-            start_date = relayoutData['xaxis.range[0]'].split(" ")[0]
-            end_date = relayoutData['xaxis.range[1]'].split(" ")[0]
-        else:
-            start_date = relayoutData['xaxis.range'][0].split(" ")[0]
-            end_date = relayoutData['xaxis.range'][1].split(" ")[0]
-        print(start_date, end_date)
-        dff = df[(df['creation_date_parsed'] >= date_string_to_date(start_date)) & \
-        (df['creation_date_parsed'] <= date_string_to_date(end_date))]
-        # print(dff)
-        return create_graph(dff, update=True)
-    else:
-        return create_graph(df)
+def update_output_div(clickDataTimeline, clickDataMap, derived_virtual_data, selected_rows):
+    if selected_rows is not None and len(selected_rows) > 0:
+        print('Selected {}'.format(derived_virtual_data[selected_rows[0]]))
+    return [html.P('Timeline: {}'.format(clickDataTimeline)),
+            html.P('Map: {}'.format(clickDataMap)),
+            html.P('Table:{}'.format(selected_rows))]
 
-@app.callback(
-        Output('debug-div', 'children'),
-        [Input('depositions-timeline', 'relayoutData'),
-        Input('depositions-map', 'clickData')])
-
-def update_output_div(clickDataTimeline, clickDataMap):
-    return 'You\'ve entered "{} and {}"'.format(clickDataTimeline, clickDataMap)
     # if clickData is not None:
     #     print(clickData)
     #     county_idx = clickData['points'][0]['pointIndex']
