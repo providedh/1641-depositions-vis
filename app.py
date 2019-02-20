@@ -26,16 +26,12 @@ import os
 from datetime import date
 
 
-
-external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css']
-
-
 if os.environ['MAPBOX_ACCESS_TOKEN'] is None:
     sys.exit('Please provide a mapbox access token as environment variable: export MAPBOX_ACCESS_TOKEN=<Your token>')
 
 mapbox_access_token = os.environ['MAPBOX_ACCESS_TOKEN']
 
-app = dash.Dash(__name__, external_stylesheets=external_stylesheets)
+app = dash.Dash(__name__)
 
 with open('./data/ireland-geo.json') as f:
     geojson = json.load(f)
