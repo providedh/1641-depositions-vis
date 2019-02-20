@@ -7,7 +7,9 @@ from dash.dependencies import Input, Output, State
 import plotly.graph_objs as go
 import pandas as pd
 import json
+import itertools
 
+import networkx as nx
 import numpy as np
 from matplotlib import cm
 from matplotlib.colors import Normalize
@@ -56,7 +58,7 @@ def initialize():
     return df    
 
 df = initialize()
-
+    
 
 def create_timeline(dff):
     #Counts by Date
@@ -79,7 +81,7 @@ def create_timeline(dff):
                         ),
                     autobinx=False)],
                 'layout': go.Layout(
-                    title='Timeline of depositions',
+                    margin = dict(l=10, r=0, b=0, t=0),
                     xaxis=dict(
                         rangeselector=dict(
                             buttons=list([
@@ -103,8 +105,7 @@ def create_timeline(dff):
                         ),
                         type='date'
                     ),
-                    width=800,
-                    height=400)
+                    height=300)
             }
             
 
@@ -221,8 +222,7 @@ def create_map(dff):
                 )],
                 'layout': go.Layout(
                     autosize=False,
-                    width = 350,
-                    height = 400,
+                    height=300,
                     hovermode='closest',
                     margin = dict(l=0, r=0, b=0, t=0),
                     mapbox=dict(
@@ -241,25 +241,116 @@ def create_map(dff):
                 ) 
             }
             
+def create_graph(dff, update=False):
+
+    # G=nx.random_geometric_graph(200,0.125)
+    # pos=nx.get_node_attributes(G,'pos')
+
+    if not update:
+        dp_indexes = [10,11,12,13,14,15,16]
+        dff = df.iloc[dp_indexes]
+
+    print('Graphing %s depositions' % len(dff))
+
+    G = nx.Graph()
+
+    
+    for i, dep in dff.iterrows():
+        people_list = dep['people_list']
+        # print(people_list)
+        # print()
+        forenames = [p['forename'] if 'forename' in p else 'Unknown' for p in people_list ] 
+        surnames = [p['surname'] if 'surname' in p else 'Unknown' for p in people_list ] 
+
+        names_list = [forenames[i] + ' ' + surnames[i] for i in range(len(people_list))]
+        for person_a, person_b in itertools.combinations(names_list, 2):
+            G.add_edge(person_a, person_b, deposition=i)
+
+    pos = nx.layout.spring_layout(G)
+
+    for node in G.nodes:
+        G.nodes[node]['pos'] = list(pos[node])
+
+    pos = nx.get_node_attributes(G,'pos')
+
+    print('Created graph')
+
+    edge_trace = go.Scatter(
+    x=[],
+    y=[],
+    line=dict(width=0.5,color='#888'),
+    hoverinfo='none',
+    mode='lines')
+
+    for edge in G.edges():
+        x0, y0 = G.node[edge[0]]['pos']
+        x1, y1 = G.node[edge[1]]['pos']
+        edge_trace['x'] += tuple([x0, x1, None])
+        edge_trace['y'] += tuple([y0, y1, None])
+
+    node_trace = go.Scatter(
+        x=[],
+        y=[],
+        text=[],
+        mode='markers',
+        hoverinfo='text',
+        marker=dict(
+            showscale=True,
+            # colorscale options
+            #'Greys' | 'YlGnBu' | 'Greens' | 'YlOrRd' | 'Bluered' | 'RdBu' |
+            #'Reds' | 'Blues' | 'Picnic' | 'Rainbow' | 'Portland' | 'Jet' |
+            #'Hot' | 'Blackbody' | 'Earth' | 'Electric' | 'Viridis' |
+            colorscale='YlGnBu',
+            reversescale=True,
+            color=[],
+            size=10,
+            colorbar=dict(
+                thickness=15,
+                title='Node Connections',
+                xanchor='left',
+                titleside='right'
+            ),
+            line=dict(width=2)))
+
+    for node in G.nodes():
+        x, y = G.node[node]['pos']
+        node_trace['x'] += tuple([x])
+        node_trace['y'] += tuple([y])
+
+    return {
+        'data': [edge_trace, node_trace],
+        'layout': go.Layout(
+            height=300,
+            hovermode='closest',
+            xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+            yaxis=dict(showgrid=False, zeroline=False, showticklabels=False))
+            
+    }
 
 
 app.layout = html.Div(children=[
-    html.H1(children='1641 Depositions'),
+    html.H3(children='The 1641 Depositions'),
 
-    html.Div(id='row', className='row', children=[
+    html.Div(className='row', children=[
 
         html.Div(dcc.Graph(
                         id='depositions-timeline'),
-            className='six columns'),
-
-        
+            className='four columns'),        
 
         html.Div(dcc.Graph(
                         id='depositions-map'), 
-            className='six columns')
+            className='four columns')
     ]),
 
-    html.Div(id='debug-div')
+    html.Div(className='row', children=[
+        html.Div(dcc.Graph(
+                        id='depositions-network'),
+            className='eight columns'),        
+    ]),
+    html.Div(className='row', children=[
+            html.Div(id='debug-div',
+                className='twelve columns')        
+    ]),
 ])
 
 @app.callback(
@@ -296,6 +387,27 @@ def update_timeline(clickData):
         return create_timeline(ddf)
     return create_timeline(df)
 
+@app.callback(
+    Output('depositions-network', 'figure'),
+    [Input('depositions-timeline', 'relayoutData')])
+
+def update_network(relayoutData):
+    print(relayoutData)
+    if relayoutData and ('xaxis.range[0]' in relayoutData or 'xaxis.range' in relayoutData):
+        # print(selectedData['points'][0]['x'])
+        if 'xaxis.range[0]' in relayoutData:
+            start_date = relayoutData['xaxis.range[0]'].split(" ")[0]
+            end_date = relayoutData['xaxis.range[1]'].split(" ")[0]
+        else:
+            start_date = relayoutData['xaxis.range'][0].split(" ")[0]
+            end_date = relayoutData['xaxis.range'][1].split(" ")[0]
+        print(start_date, end_date)
+        dff = df[(df['creation_date_parsed'] >= date_string_to_date(start_date)) & \
+        (df['creation_date_parsed'] <= date_string_to_date(end_date))]
+        # print(dff)
+        return create_graph(dff, update=True)
+    else:
+        return create_graph(df)
 
 @app.callback(
         Output('debug-div', 'children'),
