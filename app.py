@@ -48,7 +48,6 @@ def initialize():
 
     #Data amends/conversions
     #Dates
-    df['creation_date_period'] = pd.PeriodIndex(df['creation_date'], freq='d')
 
     df['creation_date_parsed'] = df['creation_date'].map(
         lambda x: date_string_to_date(x) if isinstance(x, str) else x)
@@ -137,6 +136,7 @@ def initialize():
     return df, name_counter
 
 df, name_counter = initialize()
+df = df[['creation_date_parsed', 'deponent_county']]
 
 
 name_counts = [( v['idx'],
@@ -175,6 +175,7 @@ app.layout = html.Div(children=[
                         id='table',
                         columns=[{"name" : i, "id": i} for i in names_counter_df.columns[2:5]],
                         filtering=True,
+                        sorting=True,
                         row_selectable="multi",
                         data=names_counter_df.to_dict("rows"),
                         style_table={
@@ -182,7 +183,7 @@ app.layout = html.Div(children=[
                             'overflowY': 'scroll',
                             'border': 'thin lightgrey solid'
                         }),
-            className='four columns')
+            className='four columns'),
     ]),
 
     # html.Div(className='row', children=[
@@ -195,6 +196,7 @@ app.layout = html.Div(children=[
         html.Div(id='debug-div',
             className='twelve columns')        
     ]),
+    dcc.Store(id='memory')
 ])
     
 
@@ -219,6 +221,7 @@ def create_timeline(dff):
                         ),
                     autobinx=False)],
                 'layout': go.Layout(
+                    autosize=False,
                     margin = dict(l=10, r=0, b=0, t=0),
                     xaxis=dict(
                         rangeselector=dict(
@@ -259,10 +262,10 @@ def create_map(dff):
             if df[c] != 0 else grey for c in counties]
 
     def get_colorscale(sm, df, cmin, cmax):
-        xrange = np.linspace(0, 1, len(df))
+        arange = np.linspace(0, 1, len(df))
         values = np.linspace(cmin, cmax, len(df))
 
-        return [[i, 'rgba' + str(sm.to_rgba(v, bytes = True))] for i,v in zip(xrange, values) ]
+        return [[i, 'rgba' + str(sm.to_rgba(v, bytes = True))] for i,v in zip(arange, values) ]
 
     def get_hover_text(counts) :
         text_value = (counts).round(2).astype(str)
@@ -361,6 +364,8 @@ def create_map(dff):
                 'layout': go.Layout(
                     autosize=False,
                     height=300,
+                    clickmode='event+select',
+                    dragmode='zoom',
                     hovermode='closest',
                     margin = dict(l=0, r=0, b=0, t=0),
                     mapbox=dict(
@@ -458,6 +463,7 @@ def create_graph(dff, update=False):
     return {
         'data': [edge_trace, node_trace],
         'layout': go.Layout(
+            autosize=False,
             height=300,
             hovermode='closest',
             margin = dict(l=0, r=0, b=0, t=0),
@@ -469,37 +475,53 @@ def create_graph(dff, update=False):
 
 @app.callback(
     Output('map', 'figure'),
-    [Input('timeline', 'relayoutData')])
+    [Input('memory', 'modified_timestamp')],
+    [State('memory', 'data')])
 
-def update_map(relayoutData):
-    print(relayoutData)
-    if relayoutData and ('xaxis.range[0]' in relayoutData or 'xaxis.range' in relayoutData):
-        # print(selectedData['points'][0]['x'])
-        if 'xaxis.range[0]' in relayoutData:
-            start_date = relayoutData['xaxis.range[0]'].split(" ")[0]
-            end_date = relayoutData['xaxis.range[1]'].split(" ")[0]
-        else:
-            start_date = relayoutData['xaxis.range'][0].split(" ")[0]
-            end_date = relayoutData['xaxis.range'][1].split(" ")[0]
-        print(start_date, end_date)
-        dff = df[(df['creation_date_parsed'] >= date_string_to_date(start_date)) & \
-        (df['creation_date_parsed'] <= date_string_to_date(end_date))]
-        # print(dff)
-        return create_map(dff)
-    else:
-        return create_map(df)
+def update_map(timestamp, memData):
+    # print(relayoutData)
+    # if relayoutData and ('xaxis.range[0]' in relayoutData or 'xaxis.range' in relayoutData):
+    #     # print(selectedData['points'][0]['x'])
+    #     if 'xaxis.range[0]' in relayoutData:
+    #         start_date = relayoutData['xaxis.range[0]'].split(" ")[0]
+    #         end_date = relayoutData['xaxis.range[1]'].split(" ")[0]
+    #     else:
+    #         start_date = relayoutData['xaxis.range'][0].split(" ")[0]
+    #         end_date = relayoutData['xaxis.range'][1].split(" ")[0]
+    #     print(start_date, end_date)
+    #     dff = df[(df['creation_date_parsed'] >= date_string_to_date(start_date)) & \
+    #     (df['creation_date_parsed'] <= date_string_to_date(end_date))]
+    #     # print(dff)
+    #     return create_map(dff)
+    # else:
+    #     return create_map(df)
+    if timestamp is None:
+        raise dash.exceptions.PreventUpdate
+    # print('current storage is {}'.format(memData))
+    print('modified_timestamp is {}'.format(timestamp))
+
+    return create_map(pd.read_json(memData['dff'])) 
+
+# @app.callback(
+#     Output('timeline', 'data'),
+#     [Input('map', 'hoverData')])
+# def update_timeline_with_map_hover():
+
 
 @app.callback(
     Output('timeline', 'figure'),
-    [Input('map', 'clickData')])
+    [Input('memory', 'modified_timestamp')],
+    [State('memory', 'data')])
 
-def update_timeline(clickData):
-    if clickData and 'points' in clickData:
-        clicked_county = clickData['points'][0]['customdata']
-        print('Clicked on %s' % clickData['points'][0]['customdata'])
-        ddf = df[df['deponent_county'] == clicked_county]
-        return create_timeline(ddf)
-    return create_timeline(df)
+def update_timeline(timestamp, memData):
+    if timestamp is None:
+        raise dash.exceptions.PreventUpdate
+    # print('current storage is {}'.format(memData))
+    print('modified_timestamp is {}'.format(timestamp))
+
+    
+    return create_timeline(pd.read_json(memData['dff']))
+    
 
 # @app.callback(
 #     Output('network', 'figure'),
@@ -523,19 +545,21 @@ def update_timeline(clickData):
 #     else:
 #         return create_graph(df)
 
-@app.callback(
-    Output('debug-div', 'children'),
-    [Input('timeline', 'relayoutData'),
-    Input('map', 'clickData'),
-    Input('table', 'derived_virtual_data'),
-    Input('table', 'selected_rows')])
+# @app.callback(
+#     Output('debug-div', 'children'),
+#     [Input('timeline', 'relayoutData'),
+#     Input('map', 'clickData'),
+#     Input('table', 'derived_virtual_data'),
+#     Input('table', 'selected_rows'),
+#     Input('map', 'hoverData')])
 
-def update_output_div(clickDataTimeline, clickDataMap, derived_virtual_data, selected_rows):
-    if selected_rows is not None and len(selected_rows) > 0:
-        print('Selected {}'.format(derived_virtual_data[selected_rows[0]]))
-    return [html.P('Timeline: {}'.format(clickDataTimeline)),
-            html.P('Map: {}'.format(clickDataMap)),
-            html.P('Table:{}'.format(selected_rows))]
+# def update_output_div(clickDataTimeline, clickDataMap, derived_virtual_data, selected_rows, hoverData):
+#     if selected_rows is not None and len(selected_rows) > 0:
+#         print('Selected {}'.format(derived_virtual_data[selected_rows[0]]))
+#     return [html.P('Timeline: {}'.format(clickDataTimeline)),
+#             html.P('Map: {}'.format(clickDataMap)),
+#             html.P('Map Hover: {}'.format(hoverData)),
+#             html.P('Table:{}'.format(selected_rows))]
 
     # if clickData is not None:
     #     print(clickData)
@@ -544,6 +568,108 @@ def update_output_div(clickDataTimeline, clickDataMap, derived_virtual_data, sel
     #     return 'You\'ve entered "{}"'.format(clickData['points'][0]['text'])
     # else:
     #     return 'You\'ve entered None'
+
+@app.callback(
+    Output('memory', 'data'),
+    [Input('map', 'selectedData'),
+    Input('map', 'clickData'),
+    Input('timeline', 'relayoutData')],
+    [State('memory', 'data')])
+
+def update_state(selectedDataMap, clickDataMap, relayoutData, memData):
+    print('selectedData:')
+    print(selectedDataMap)
+    print('clickData:')
+    print(clickDataMap)
+    print('relayoutData:')
+    print(relayoutData)
+
+    if memData:
+        print('memData:')
+        print(memData['selected_counties'], memData['start_date'], memData['end_date'])
+    else:
+        memData = {'selected_counties' : [], 'start_date' : None, 'end_date' : None}
+    
+    if selectedDataMap and 'points' in selectedDataMap:
+        counties = []
+        for point in selectedDataMap['points']:
+            counties.append(point['customdata'])
+
+        print('Counties are ',counties)
+        memData['selected_counties'] = counties
+        memData['dff'] = filter_df_by_state(df, memData).to_json()
+
+        # if county not in memData['selected_counties']:
+        #     print('Selecting')
+        #     if memData['selected_counties'] is None:
+        #         memData['selected_counties'] = []
+        #     memData['selected_counties'].append(county)
+        #     memData['dff'] = filter_df_by_state(df, memData).to_json()
+        # else:
+        #     print('Deselecting')
+        #     memData['selected_counties'].remove(county)
+        #     memData['dff'] = filter_df_by_state(df, memData).to_json()
+    elif selectedDataMap is None:
+        memData['selected_counties'] = []
+        memData['dff'] = filter_df_by_state(df, memData).to_json()
+        
+    
+    if relayoutData and ('xaxis.range[0]' in relayoutData or 'xaxis.range' in relayoutData):
+        start_date = relayoutData['xaxis.range[0]'].split(" ")[0]
+        end_date = relayoutData['xaxis.range[1]'].split(" ")[0]
+    # else:
+    #     start_date = relayoutData['xaxis.range'][0].split(" ")[0]
+    #     end_date = relayoutData['xaxis.range'][1].split(" ")[0]
+        print(start_date, end_date)
+
+        if not memData:
+            memData = {}
+        
+        memData['start_date'] = start_date
+        memData['end_date'] = end_date
+
+        memData['dff'] = filter_df_by_state(df, memData).to_json()
+    else:
+        memData['start_date'] = None
+        memData['end_date'] = None
+
+        memData['dff'] = filter_df_by_state(df, memData).to_json()
+
+
+        
+    memData = memData or {}
+    if 'dff' not in memData:
+        memData['dff'] = df.to_json()
+        memData['selected_counties'] = []
+        memData['start_date'] = None
+        memData['end_date'] = None
+
+
+    return memData
+    
+    
+
+    
+
+    # return memData or {}
+
+
+def filter_df_by_state(df, memData):
+    dff = filter_df_by_county(df, memData['selected_counties'])
+    dff = filter_df_by_dates(dff, memData['start_date'], memData['end_date'])
+    return dff 
+
+def filter_df_by_county(df, counties):
+    print(counties)
+    if len(counties) == 0: return df
+    return df[df['deponent_county'].isin(counties)]
+
+def filter_df_by_dates(df, start_date, end_date):
+    if start_date and end_date:
+        return df[(df['creation_date_parsed'] >= date_string_to_date(start_date)) & \
+            (df['creation_date_parsed'] <= date_string_to_date(end_date))]
+    else:
+        return df
 
 
 if __name__ == '__main__':
