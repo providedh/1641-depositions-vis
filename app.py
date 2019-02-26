@@ -600,12 +600,13 @@ def update_output_div(timestamp, memData):
         counties = ",".join(memData['selected_counties'])
         num_counties = len(memData['selected_counties'])
 
-    return html.P('%s depositions in %s counties (%s) in period %s to %s' % \
+    return [html.P('%s depositions in %s counties (%s) in period %s to %s' % \
         (memData['n_depositions'],
             num_counties, 
             str(counties),
             start_date,
-            end_date))
+            end_date)),
+            html.P('%s distinct names referenced' % memData['person_count'])]
 
     
 
@@ -660,6 +661,7 @@ def update_state(clickDataMap, relayoutData, filtering_settings, memData):
                     'end_date' : None, 
                     'dff' : df.to_json(),
                     'filtering_settings' : "",
+                    'person_count': len(person_counter_df),
                     'person_counter_df': person_counter_df.to_json(),
                     'text_filter_depositions': depositions}
 
@@ -679,6 +681,7 @@ def update_state(clickDataMap, relayoutData, filtering_settings, memData):
             memData['dff'] = dff.to_json()
             memData['n_depositions'] = len(dff)
             memData['person_counter_dff'] = person_counter_dff.to_json()
+            memData['person_count'] = len(person_counter_dff)
         else:
             print('Deselecting')
             memData['selected_counties'].remove(clicked_county)
@@ -686,6 +689,7 @@ def update_state(clickDataMap, relayoutData, filtering_settings, memData):
             memData['dff'] = dff.to_json()
             memData['n_depositions'] = len(dff)
             memData['person_counter_dff'] = person_counter_dff.to_json()
+            memData['person_count'] = len(person_counter_dff)
 
         return memData
         
@@ -703,6 +707,7 @@ def update_state(clickDataMap, relayoutData, filtering_settings, memData):
             memData['dff'] = dff.to_json()
             memData['n_depositions'] = len(dff)
             memData['person_counter_dff'] = person_counter_dff.to_json()
+            memData['person_count'] = len(person_counter_dff)
             return memData
         else:
             memData['start_date'] = None
@@ -711,6 +716,7 @@ def update_state(clickDataMap, relayoutData, filtering_settings, memData):
             memData['dff'] = dff.to_json()
             memData['n_depositions'] = len(dff)
             memData['person_counter_dff'] = person_counter_dff.to_json()
+            memData['person_count'] = len(person_counter_dff)
             return memData
 
 
@@ -722,6 +728,7 @@ def update_state(clickDataMap, relayoutData, filtering_settings, memData):
             memData['dff'] = dff.to_json()
             memData['n_depositions'] = len(dff)
             memData['person_counter_dff'] = person_counter_dff.to_json()
+            memData['person_count'] = len(person_counter_dff)
             return memData
 
     return memData
@@ -740,7 +747,7 @@ def filter_df_by_state(df, memData):
     
     filtering_expressions = memData['filtering_settings'].split(' && ')
     print(person_counter_dff.columns)
-    print(filtering_expressions)
+    # print(filtering_expressions)
     for filter in filtering_expressions:
         if 'eq' in filter:
             col_name = filter.split(' eq ')[0].replace('"','')
@@ -750,7 +757,7 @@ def filter_df_by_state(df, memData):
     
     # memData['person_counter_df'] = person_counter_dff
     text_filter_depositions = sorted(list(set([d for l in person_counter_dff['depositions'] for d in l])))
-    print(text_filter_depositions)
+    # print(text_filter_depositions)
     dff = filter_df_by_text_filter(dff, text_filter_depositions)
     return dff, person_counter_dff
 
