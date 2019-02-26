@@ -25,6 +25,7 @@ import os
 
 from datetime import date
 
+print(dash.__version__)
 
 if os.environ['MAPBOX_ACCESS_TOKEN'] is None:
     sys.exit('Please provide a mapbox access token as environment variable: export MAPBOX_ACCESS_TOKEN=<Your token>')
@@ -42,30 +43,17 @@ def date_string_to_date(date_string):
             int(date_string.split('-')[1]), 
             int(date_string.split('-')[2]))
 
-def initialize():
-    df = pd.read_json('./data/all_depositions.json')
-    n_counties = len(geojson['features'])
-
-    #Data amends/conversions
-    #Dates
-
-    df['creation_date_parsed'] = df['creation_date'].map(
-        lambda x: date_string_to_date(x) if isinstance(x, str) else x)
-
-    df['creation_year'] = df['creation_date'].str.slice(start=0, stop=4)
-    df['creation_year'] = df['creation_year'].fillna('Unknown')
-
-    #Places
-    df.deponent_county = df.deponent_county.fillna('Unknown')
-
+def create_person_counter_df(dff):
     #Generate persons graph
 
+    print('Creating person counter out of %s depositions' % len(dff))
+
     name_counter = dict()
-    people_list = df['people_list'].tolist()
     names_list = []
     person2indx = {}
     indx2role = {}
-    for i, dep_part in enumerate(people_list):
+    for i, deposition in dff.iterrows():
+        dep_part = deposition['people_list']
         names = []
         for person in dep_part:
             person_str = ''
@@ -111,6 +99,50 @@ def initialize():
     indx2person = {v:k for k,v in person2indx.items()}
 
     print('Processed %s distinct names' % (len(indx2person.keys())))
+    name_counts = [( v['idx'],
+                 v['fullname'], 
+                 v['forename'], 
+                 v['surname'], 
+                 v['count'],
+                 v['depositions']
+                 ) for v in name_counter.values()]
+
+    names_counter_df = pd.DataFrame(name_counts, columns=['idx', 
+                                                          'fullname',
+                                                          'forename',
+                                                          'surname',
+                                                          'appearances',
+                                                          'depositions'])
+    names_counter_df.set_index('idx', inplace=True)
+
+    # names_counter_df = names_counter_df.rename(columns={'index' : 'name', 0 : 'appearances'})
+    names_counter_df.sort_values(by=['appearances'], ascending=False, inplace=True)
+
+    return names_counter_df
+
+
+def initialize():
+    df = pd.read_json('./data/all_depositions.json')
+    n_counties = len(geojson['features'])
+
+    #Data amends/conversions
+    #Dates
+
+    df['creation_date_parsed'] = df['creation_date'].map(
+        lambda x: date_string_to_date(x) if isinstance(x, str) else x)
+
+    df['creation_year'] = df['creation_date'].str.slice(start=0, stop=4)
+    df['creation_year'] = df['creation_year'].fillna('Unknown')
+
+    #Places
+    df.deponent_county = df.deponent_county.fillna('Unknown')
+
+    df = df[df['people_list'].map(lambda d: len(d)) > 0]
+
+    df.reset_index(inplace=True)
+
+
+    
     # print(name_counter.most_common(40))
 
     # names = list(person2indx.keys())
@@ -133,31 +165,12 @@ def initialize():
     #     for person_a, person_b in itertools.combinations(dep_names, 2):
     #         G.add_edge(person2indx[person_a], person2indx[person_b], deposition=i)
 
-    return df, name_counter
+    return df
 
-df, name_counter = initialize()
-df = df[['creation_date_parsed', 'deponent_county']]
-
-
-name_counts = [( v['idx'],
-                 v['fullname'], 
-                 v['forename'], 
-                 v['surname'], 
-                 v['count'],
-                 v['depositions']
-                 ) for v in name_counter.values()]
-
-
-names_counter_df = pd.DataFrame(name_counts, columns=['idx', 
-                                                      'fullname',
-                                                      'forename',
-                                                      'surname',
-                                                      'appearances',
-                                                      'depositions'])
-# names_counter_df = names_counter_df.rename(columns={'index' : 'name', 0 : 'appearances'})
-names_counter_df.sort_values(by=['appearances'], ascending=False, inplace=True)
-
-print(names_counter_df.dtypes)
+df = initialize()
+df = df[['creation_date_parsed', 'deponent_county', 'people_list']]
+person_counter_df = create_person_counter_df(df)
+#Create index for depositions.
 
 app.layout = html.Div(children=[
     html.H3(children='The 1641 Depositions'),
@@ -173,11 +186,10 @@ app.layout = html.Div(children=[
 
         html.Div(dash_table.DataTable(
                         id='table',
-                        columns=[{"name" : i, "id": i} for i in names_counter_df.columns[2:5]],
-                        filtering=True,
+                        columns=[{"name" : i, "id": i} for i in ["forename", "surname", "appearances"]],
+                        filtering='be',
                         sorting=True,
                         row_selectable="multi",
-                        data=names_counter_df.to_dict("rows"),
                         style_table={
                             'maxHeight': '300px',
                             'overflowY': 'scroll',
@@ -472,6 +484,21 @@ def create_graph(dff, update=False):
             
     }
 
+@app.callback(
+    Output('table', 'data'),
+    [Input('memory', 'modified_timestamp')],
+    [State('memory', 'data')])
+
+def update_table(timestamp, memData):
+    if timestamp is None:
+        raise dash.exceptions.PreventUpdate
+    print('update TABLE')
+    person_counter_df = pd.read_json(memData['person_counter_dff'])
+    person_counter_df.sort_values(by=['appearances'], ascending=False, inplace=True)
+
+    return person_counter_df.to_dict("rows")
+
+
 
 @app.callback(
     Output('map', 'figure'),
@@ -571,100 +598,146 @@ def update_timeline(timestamp, memData):
 
 @app.callback(
     Output('memory', 'data'),
-    [Input('map', 'selectedData'),
-    Input('map', 'clickData'),
-    Input('timeline', 'relayoutData')],
+    [Input('map', 'clickData'),
+    Input('timeline', 'relayoutData'),
+    Input('table', 'filtering_settings')],
     [State('memory', 'data')])
 
-def update_state(selectedDataMap, clickDataMap, relayoutData, memData):
-    print('selectedData:')
-    print(selectedDataMap)
-    print('clickData:')
-    print(clickDataMap)
-    print('relayoutData:')
-    print(relayoutData)
+def update_state(clickDataMap, relayoutData, filtering_settings, memData):
+    # print('clickData:')
+    # print(clickDataMap)
+    # print('relayoutData:')
+    # print(relayoutData)
+
+    # print(dash.callback_context.triggered)
 
     if memData:
         print('memData:')
         print(memData['selected_counties'], memData['start_date'], memData['end_date'])
     else:
-        memData = {'selected_counties' : [], 'start_date' : None, 'end_date' : None}
+        
+        depositions = sorted(list(set([d for l in person_counter_df['depositions'] for d in l])))
+        memData = {
+                    'selected_counties' : [], 
+                    'start_date' : None, 
+                    'end_date' : None, 
+                    'dff' : df.to_json(),
+                    'filtering_settings' : "",
+                    'person_counter_df': person_counter_df.to_json(),
+                    'text_filter_depositions': depositions}
+
+    prop_id = dash.callback_context.triggered[0]['prop_id']
+
+    print('prop_id is %s' % prop_id)
     
-    if selectedDataMap and 'points' in selectedDataMap:
-        counties = []
-        for point in selectedDataMap['points']:
-            counties.append(point['customdata'])
+    if prop_id == 'map.clickData':
+        print('Changing counties')
+        clicked_county = clickDataMap['points'][0]['customdata']
+        if clicked_county not in memData['selected_counties']:
+            print('Selecting')
+            if memData['selected_counties'] is None:
+                memData['selected_counties'] = []
+            memData['selected_counties'].append(clicked_county)
+            dff, person_counter_dff = filter_df_by_state(df, memData)
+            memData['dff'] = dff.to_json()
+            memData['person_counter_dff'] = person_counter_dff.to_json()
+        else:
+            print('Deselecting')
+            memData['selected_counties'].remove(clicked_county)
+            dff, person_counter_dff = filter_df_by_state(df, memData)
+            memData['dff'] = dff.to_json()
+            memData['person_counter_dff'] = person_counter_dff.to_json()
 
-        print('Counties are ',counties)
-        memData['selected_counties'] = counties
-        memData['dff'] = filter_df_by_state(df, memData).to_json()
-
-        # if county not in memData['selected_counties']:
-        #     print('Selecting')
-        #     if memData['selected_counties'] is None:
-        #         memData['selected_counties'] = []
-        #     memData['selected_counties'].append(county)
-        #     memData['dff'] = filter_df_by_state(df, memData).to_json()
-        # else:
-        #     print('Deselecting')
-        #     memData['selected_counties'].remove(county)
-        #     memData['dff'] = filter_df_by_state(df, memData).to_json()
-    elif selectedDataMap is None:
-        memData['selected_counties'] = []
-        memData['dff'] = filter_df_by_state(df, memData).to_json()
+        return memData
         
-    
-    if relayoutData and ('xaxis.range[0]' in relayoutData or 'xaxis.range' in relayoutData):
-        start_date = relayoutData['xaxis.range[0]'].split(" ")[0]
-        end_date = relayoutData['xaxis.range[1]'].split(" ")[0]
-    # else:
-    #     start_date = relayoutData['xaxis.range'][0].split(" ")[0]
-    #     end_date = relayoutData['xaxis.range'][1].split(" ")[0]
-        print(start_date, end_date)
+    if prop_id == 'timeline.relayoutData': 
+        if relayoutData and 'xaxis.range[0]' in relayoutData:
+            print('Changing dates')
+            start_date = relayoutData['xaxis.range[0]'].split(" ")[0]
+            end_date = relayoutData['xaxis.range[1]'].split(" ")[0]
+            print(start_date, end_date)
+            
+            memData['start_date'] = start_date
+            memData['end_date'] = end_date
 
-        if not memData:
-            memData = {}
-        
-        memData['start_date'] = start_date
-        memData['end_date'] = end_date
+            dff, person_counter_dff = filter_df_by_state(df, memData)
+            memData['dff'] = dff.to_json()
+            memData['person_counter_dff'] = person_counter_dff.to_json()
+            return memData
+        else:
+            memData['start_date'] = None
+            memData['end_date'] = None
+            dff, person_counter_dff = filter_df_by_state(df, memData)
+            memData['dff'] = dff.to_json()
+            memData['person_counter_dff'] = person_counter_dff.to_json()
+            return memData
 
-        memData['dff'] = filter_df_by_state(df, memData).to_json()
-    else:
-        memData['start_date'] = None
-        memData['end_date'] = None
 
-        memData['dff'] = filter_df_by_state(df, memData).to_json()
-
-
-        
-    memData = memData or {}
-    if 'dff' not in memData:
-        memData['dff'] = df.to_json()
-        memData['selected_counties'] = []
-        memData['start_date'] = None
-        memData['end_date'] = None
-
+    if prop_id == 'table.filtering_settings':
+        print('Filtering table: %s' % filtering_settings)
+        if filtering_settings is not None:
+            memData['filtering_settings'] = filtering_settings
+            dff, person_counter_dff = filter_df_by_state(df, memData)
+            memData['dff'] = dff.to_json()
+            memData['person_counter_dff'] = person_counter_dff.to_json()
+            return memData
 
     return memData
-    
+
+    # print('hello')
+    # memData = memData or {}
+    # if 'dff' not in memData:
+    #     memData['dff'] = df.to_json()
+    #     memData['selected_counties'] = []
+    #     memData['start_date'] = None
+    #     memData['end_date'] = None
+
+
+    # return memData
     
 
-    
-
-    # return memData or {}
 
 
 def filter_df_by_state(df, memData):
+    print('filter by state')
     dff = filter_df_by_county(df, memData['selected_counties'])
     dff = filter_df_by_dates(dff, memData['start_date'], memData['end_date'])
-    return dff 
+    person_counter_dff = create_person_counter_df(dff)
+
+    
+    if len(memData['filtering_settings']) == 0:
+        print('filtering_expressions is 0')
+        return dff, person_counter_dff
+    
+    filtering_expressions = memData['filtering_settings'].split(' && ')
+    print(person_counter_dff.columns)
+    print(filtering_expressions)
+    for filter in filtering_expressions:
+        if 'eq' in filter:
+            col_name = filter.split(' eq ')[0].replace('"','')
+            filter_value = filter.split(' eq ')[1].replace('"','')
+            person_counter_dff = person_counter_dff[person_counter_dff[col_name] == filter_value]
+            person_counter_dff = person_counter_dff[person_counter_dff[col_name] == filter_value]
+    
+    # memData['person_counter_df'] = person_counter_dff
+    text_filter_depositions = sorted(list(set([d for l in person_counter_dff['depositions'] for d in l])))
+    print(text_filter_depositions)
+    dff = filter_df_by_text_filter(dff, text_filter_depositions)
+    return dff, person_counter_dff
+
+def filter_df_by_text_filter(df, text_filter_depositions):
+    # print(text_filter_depositions)
+    if len(text_filter_depositions) == 0: return df
+    return df.loc[text_filter_depositions]
+    
 
 def filter_df_by_county(df, counties):
-    print(counties)
+    print('Filter by counties: %s' % str(counties))
     if len(counties) == 0: return df
     return df[df['deponent_county'].isin(counties)]
 
 def filter_df_by_dates(df, start_date, end_date):
+    print('Filter by dates: %s - %s' % (start_date, end_date))
     if start_date and end_date:
         return df[(df['creation_date_parsed'] >= date_string_to_date(start_date)) & \
             (df['creation_date_parsed'] <= date_string_to_date(end_date))]
