@@ -206,7 +206,7 @@ app.layout = html.Div(children=[
     html.Div(className='row', children=[
         html.Div(id='debug-div',
             className='eight columns'),
-        html.Div([html.Button('Heatmap', id='button-heatmap'), html.Button('Graph', id='button-network')],
+        html.Div([html.Button('Graph', id='button-network'), html.Button('Heatmap', id='button-heatmap')],
             id='button-div',
             className='four columns'),
 
@@ -409,39 +409,72 @@ def create_map(dff):
                 ) 
             }
             
-def create_graph(dff, update=False):
+# def create_graph(dff, update=False):
 
-    # G=nx.random_geometric_graph(200,0.125)
-    # pos=nx.get_node_attributes(G,'pos')
+#     # G=nx.random_geometric_graph(200,0.125)
+#     # pos=nx.get_node_attributes(G,'pos')
 
-    if not update:
-        dp_indexes = [10,11,12,13,14,15,16]
-        dff = df.iloc[dp_indexes]
+#     if not update:
+#         dp_indexes = [10,11,12,13,14,15,16]
+#         dff = df.iloc[dp_indexes]
 
-    print('Graphing %s depositions' % len(dff))
+#     print('Graphing %s depositions' % len(dff))
 
-    G = nx.Graph()
+#     G = nx.Graph()
 
     
-    for i, dep in dff.iterrows():
-        people_list = dep['people_list']
-        # print(people_list)
-        # print()
-        forenames = [p['forename'] if 'forename' in p else 'Unknown' for p in people_list ] 
-        surnames = [p['surname'] if 'surname' in p else 'Unknown' for p in people_list ] 
+#     for i, dep in dff.iterrows():
+#         people_list = dep['people_list']
+#         # print(people_list)
+#         # print()
+#         forenames = [p['forename'] if 'forename' in p else 'Unknown' for p in people_list ] 
+#         surnames = [p['surname'] if 'surname' in p else 'Unknown' for p in people_list ] 
 
-        names_list = [forenames[i] + ' ' + surnames[i] for i in range(len(people_list))]
-        for person_a, person_b in itertools.combinations(names_list, 2):
-            G.add_edge(person_a, person_b, deposition=i)
+#         names_list = [forenames[i] + ' ' + surnames[i] for i in range(len(people_list))]
+#         for person_a, person_b in itertools.combinations(names_list, 2):
+#             G.add_edge(person_a, person_b, deposition=i)
 
-    pos = nx.layout.spring_layout(G)
+#     pos = nx.layout.spring_layout(G)
 
+#     for node in G.nodes:
+#         G.nodes[node]['pos'] = list(pos[node])
+
+#     pos = nx.get_node_attributes(G,'pos')
+
+#     print('Created graph')
+
+    
+
+@app.callback(
+    Output('network', 'figure'),
+    [Input('button-network', 'n_clicks')],
+    [State('memory', 'data')])
+def create_graph(n_clicks, memData):
+    prop = dash.callback_context.triggered[0]
+    print(prop)
+    if (prop['prop_id'] != 'button-network.n_clicks') or \
+    (prop['prop_id'] == 'button-network.n_clicks' and prop['value'] == None):
+        raise dash.exceptions.PreventUpdate
+
+    name_counter_dff = pd.read_json(memData['person_counter_dff'])
+
+    counts = name_counter_dff['depositions'].apply(pd.Series).stack().value_counts()
+
+    G = nx.Graph() 
+    for i in counts.index:
+        dep_names = name_counter_dff[[int(i) in x for x in name_counter_dff['depositions']]]['fullname'].tolist()
+        print(dep_names)
+        for (name_a, name_b) in itertools.combinations(dep_names, 2):
+            G.add_edge(name_a, name_b, deposition=i)
+
+    pos = nx.layout.kamada_kawai_layout(G)
     for node in G.nodes:
         G.nodes[node]['pos'] = list(pos[node])
 
-    pos = nx.get_node_attributes(G,'pos')
 
-    print('Created graph')
+
+    print(name_counter_dff.head(20))
+    
 
     edge_trace = go.Scatter(
     x=[],
@@ -463,7 +496,7 @@ def create_graph(dff, update=False):
         mode='markers',
         hoverinfo='text',
         marker=dict(
-            showscale=True,
+            showscale=False,
             # colorscale options
             #'Greys' | 'YlGnBu' | 'Greens' | 'YlOrRd' | 'Bluered' | 'RdBu' |
             #'Reds' | 'Blues' | 'Picnic' | 'Rainbow' | 'Portland' | 'Jet' |
@@ -472,18 +505,13 @@ def create_graph(dff, update=False):
             reversescale=True,
             color=[],
             size=10,
-            colorbar=dict(
-                thickness=15,
-                title='Node Connections',
-                xanchor='left',
-                titleside='right'
-            ),
             line=dict(width=2)))
 
     for node in G.nodes():
         x, y = G.node[node]['pos']
         node_trace['x'] += tuple([x])
         node_trace['y'] += tuple([y])
+        node_trace['text'] += tuple([str(node)])
 
     return {
         'data': [edge_trace, node_trace],
@@ -491,7 +519,7 @@ def create_graph(dff, update=False):
             autosize=False,
             height=300,
             hovermode='closest',
-            margin = dict(l=0, r=0, b=0, t=0),
+            margin = dict(l=0, r=0, b=0, t=10),
             xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
             yaxis=dict(showgrid=False, zeroline=False, showticklabels=False))
             
@@ -785,6 +813,16 @@ def filter_df_by_state(df, memData):
             filter_value = filter.split(' eq ')[1].replace('"','')
             person_counter_dff = person_counter_dff[person_counter_dff[col_name] == filter_value]
             person_counter_dff = person_counter_dff[person_counter_dff[col_name] == filter_value]
+        if ' > ' in filter:
+            col_name = filter.split(' > ')[0].replace('"','')
+            filter_value = float(filter.split(' > ')[1])
+            person_counter_dff = person_counter_dff[person_counter_dff[col_name] > filter_value]
+        if ' < ' in filter:
+            col_name = filter.split(' < ')[0]
+            filter_value = float(filter.split(' < ')[1])
+            dff = dff.loc[dff[col_name] < filter_value]
+            person_counter_dff = person_counter_dff[person_counter_dff[col_name] < filter_value]
+
     
     # memData['person_counter_df'] = person_counter_dff
     text_filter_depositions = sorted(list(set([d for l in person_counter_dff['depositions'] for d in l])))
