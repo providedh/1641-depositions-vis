@@ -123,7 +123,6 @@ def create_person_counter_df(dff):
 
 def initialize():
     df = pd.read_json('./data/all_depositions.json')
-    n_counties = len(geojson['features'])
 
     #Data amends/conversions
     #Dates
@@ -169,8 +168,16 @@ def initialize():
 
 df = initialize()
 df = df[['creation_date_parsed', 'deponent_county', 'people_list']]
+
 person_counter_df = create_person_counter_df(df)
 #Create index for depositions.
+dates_list = df['creation_date_parsed'].copy()
+dates_list.dropna(inplace=True)
+
+min_date = dates_list.min()
+max_date = dates_list.max()
+
+n_counties = len(geojson['features'])
 
 app.layout = html.Div(children=[
     html.H3(children='The 1641 Depositions'),
@@ -196,7 +203,10 @@ app.layout = html.Div(children=[
                             'border': 'thin lightgrey solid'
                         }),
             className='four columns'),
-    ]),
+    html.Div(className='row', children=[
+        html.Div(id='debug-div',
+            className='twelve columns')        
+    ])]),
 
     # html.Div(className='row', children=[
     #     html.Div(dcc.Graph(
@@ -204,10 +214,6 @@ app.layout = html.Div(children=[
     #         className='eight columns'),        
     # ]),
 
-    html.Div(className='row', children=[
-        html.Div(id='debug-div',
-            className='twelve columns')        
-    ]),
     dcc.Store(id='memory')
 ])
     
@@ -572,6 +578,37 @@ def update_timeline(timestamp, memData):
 #     else:
 #         return create_graph(df)
 
+@app.callback(
+    Output('debug-div', 'children'),
+    [Input('memory', 'modified_timestamp')],
+    [State('memory', 'data')])
+
+def update_output_div(timestamp, memData):
+    if timestamp is None:
+        raise dash.exceptions.PreventUpdate
+    # print('current storage is {}'.format(memData))
+    print('modified_timestamp is {}'.format(timestamp))
+    print('update_output_div:')
+    print(min_date)
+    start_date = memData['start_date'] or min_date
+    end_date = memData['end_date'] or max_date
+    
+    if len(memData['selected_counties']) == 0:
+        counties = 'All counties'
+        num_counties = n_counties
+    else:
+        counties = ",".join(memData['selected_counties'])
+        num_counties = len(memData['selected_counties'])
+
+    return html.P('%s depositions in %s counties (%s) in period %s to %s' % \
+        (memData['n_depositions'],
+            num_counties, 
+            str(counties),
+            start_date,
+            end_date))
+
+    
+
 # @app.callback(
 #     Output('debug-div', 'children'),
 #     [Input('timeline', 'relayoutData'),
@@ -640,12 +677,14 @@ def update_state(clickDataMap, relayoutData, filtering_settings, memData):
             memData['selected_counties'].append(clicked_county)
             dff, person_counter_dff = filter_df_by_state(df, memData)
             memData['dff'] = dff.to_json()
+            memData['n_depositions'] = len(dff)
             memData['person_counter_dff'] = person_counter_dff.to_json()
         else:
             print('Deselecting')
             memData['selected_counties'].remove(clicked_county)
             dff, person_counter_dff = filter_df_by_state(df, memData)
             memData['dff'] = dff.to_json()
+            memData['n_depositions'] = len(dff)
             memData['person_counter_dff'] = person_counter_dff.to_json()
 
         return memData
@@ -662,6 +701,7 @@ def update_state(clickDataMap, relayoutData, filtering_settings, memData):
 
             dff, person_counter_dff = filter_df_by_state(df, memData)
             memData['dff'] = dff.to_json()
+            memData['n_depositions'] = len(dff)
             memData['person_counter_dff'] = person_counter_dff.to_json()
             return memData
         else:
@@ -669,6 +709,7 @@ def update_state(clickDataMap, relayoutData, filtering_settings, memData):
             memData['end_date'] = None
             dff, person_counter_dff = filter_df_by_state(df, memData)
             memData['dff'] = dff.to_json()
+            memData['n_depositions'] = len(dff)
             memData['person_counter_dff'] = person_counter_dff.to_json()
             return memData
 
@@ -679,24 +720,12 @@ def update_state(clickDataMap, relayoutData, filtering_settings, memData):
             memData['filtering_settings'] = filtering_settings
             dff, person_counter_dff = filter_df_by_state(df, memData)
             memData['dff'] = dff.to_json()
+            memData['n_depositions'] = len(dff)
             memData['person_counter_dff'] = person_counter_dff.to_json()
             return memData
 
     return memData
-
-    # print('hello')
-    # memData = memData or {}
-    # if 'dff' not in memData:
-    #     memData['dff'] = df.to_json()
-    #     memData['selected_counties'] = []
-    #     memData['start_date'] = None
-    #     memData['end_date'] = None
-
-
-    # return memData
     
-
-
 
 def filter_df_by_state(df, memData):
     print('filter by state')
