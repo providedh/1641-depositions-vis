@@ -205,14 +205,21 @@ app.layout = html.Div(children=[
             className='four columns'),
     html.Div(className='row', children=[
         html.Div(id='debug-div',
-            className='twelve columns')        
+            className='eight columns'),
+        html.Div([html.Button('Heatmap', id='button-heatmap'), html.Button('Graph', id='button-network')],
+            id='button-div',
+            className='four columns'),
+
     ])]),
 
-    # html.Div(className='row', children=[
-    #     html.Div(dcc.Graph(
-    #                     id='network'),
-    #         className='eight columns'),        
-    # ]),
+    html.Div(className='row', children=[
+        html.Div(dcc.Graph(
+                        id='network'),
+            className='eight columns'),
+        html.Div(dcc.Graph(
+                        id='heatmap'),
+            className='four columns')  
+    ]),
 
     dcc.Store(id='memory')
 ])
@@ -491,6 +498,56 @@ def create_graph(dff, update=False):
     }
 
 @app.callback(
+    Output('heatmap', 'figure'),
+    [Input('button-heatmap', 'n_clicks')],
+    [State('memory', 'data')])
+def create_heatmap(n_clicks, memData):
+    prop = dash.callback_context.triggered[0]
+    print(prop)
+    if (prop['prop_id'] != 'button-heatmap.n_clicks') or \
+    (prop['prop_id'] == 'button-heatmap.n_clicks' and prop['value'] == None):
+        raise dash.exceptions.PreventUpdate
+
+    name_counter_dff = pd.read_json(memData['person_counter_dff'])
+    print(len(name_counter_dff))
+    names = sorted(name_counter_dff['fullname'].tolist())
+
+    print(names)
+
+    transformed_names = np.array(names).reshape(-1,1)
+    # print(transformed_names)
+
+    print(transformed_names.shape)
+
+    print(transformed_names[0])
+
+    sq_distance_matrix = squareform(pdist(transformed_names, lambda x,y: ratio(x[0], y[0])))
+
+    print(sq_distance_matrix.shape)
+    print(sq_distance_matrix)
+    # print(squareform(distance_matrix))
+
+    # return {
+    #     'data': [{
+                
+    #         }],
+    #     'type': 'heatmap'
+    # }
+
+    return  {
+                'data': [go.Heatmap(
+                    z=sq_distance_matrix,
+                    x=names,
+                    y=names,
+                    colorscale = 'Viridis')],
+                'layout': go.Layout(
+                    autosize=False,
+                    margin = dict(l=0, r=0, b=0, t=0),
+                    height=300)
+            }
+
+
+@app.callback(
     Output('table', 'data'),
     [Input('memory', 'modified_timestamp')],
     [State('memory', 'data')])
@@ -607,32 +664,6 @@ def update_output_div(timestamp, memData):
             start_date,
             end_date)),
             html.P('%s distinct names referenced' % memData['person_count'])]
-
-    
-
-# @app.callback(
-#     Output('debug-div', 'children'),
-#     [Input('timeline', 'relayoutData'),
-#     Input('map', 'clickData'),
-#     Input('table', 'derived_virtual_data'),
-#     Input('table', 'selected_rows'),
-#     Input('map', 'hoverData')])
-
-# def update_output_div(clickDataTimeline, clickDataMap, derived_virtual_data, selected_rows, hoverData):
-#     if selected_rows is not None and len(selected_rows) > 0:
-#         print('Selected {}'.format(derived_virtual_data[selected_rows[0]]))
-#     return [html.P('Timeline: {}'.format(clickDataTimeline)),
-#             html.P('Map: {}'.format(clickDataMap)),
-#             html.P('Map Hover: {}'.format(hoverData)),
-#             html.P('Table:{}'.format(selected_rows))]
-
-    # if clickData is not None:
-    #     print(clickData)
-    #     county_idx = clickData['points'][0]['pointIndex']
-    #     # print(counties_counts[county_idx])
-    #     return 'You\'ve entered "{}"'.format(clickData['points'][0]['text'])
-    # else:
-    #     return 'You\'ve entered None'
 
 @app.callback(
     Output('memory', 'data'),
