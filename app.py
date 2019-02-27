@@ -17,6 +17,8 @@ import numpy as np
 from matplotlib import cm
 from matplotlib.colors import Normalize
 
+import colorlover as cl 
+
 from Levenshtein import ratio
 from scipy.spatial.distance import pdist, squareform
 
@@ -409,41 +411,24 @@ def create_map(dff):
                 ) 
             }
             
-# def create_graph(dff, update=False):
+def build_sq_distance_matrix(name_counter_dff):
+    names = sorted(name_counter_dff['fullname'].tolist())
 
-#     # G=nx.random_geometric_graph(200,0.125)
-#     # pos=nx.get_node_attributes(G,'pos')
+    print(names)
 
-#     if not update:
-#         dp_indexes = [10,11,12,13,14,15,16]
-#         dff = df.iloc[dp_indexes]
+    transformed_names = np.array(names).reshape(-1,1)
+    # print(transformed_names)
 
-#     print('Graphing %s depositions' % len(dff))
+    print(transformed_names.shape)
 
-#     G = nx.Graph()
+    print(transformed_names[0])
 
-    
-#     for i, dep in dff.iterrows():
-#         people_list = dep['people_list']
-#         # print(people_list)
-#         # print()
-#         forenames = [p['forename'] if 'forename' in p else 'Unknown' for p in people_list ] 
-#         surnames = [p['surname'] if 'surname' in p else 'Unknown' for p in people_list ] 
+    sq_distance_matrix = squareform(pdist(transformed_names, lambda x,y: ratio(x[0], y[0])))
 
-#         names_list = [forenames[i] + ' ' + surnames[i] for i in range(len(people_list))]
-#         for person_a, person_b in itertools.combinations(names_list, 2):
-#             G.add_edge(person_a, person_b, deposition=i)
+    print(sq_distance_matrix.shape)
+    print(sq_distance_matrix)
+    return sq_distance_matrix
 
-#     pos = nx.layout.spring_layout(G)
-
-#     for node in G.nodes:
-#         G.nodes[node]['pos'] = list(pos[node])
-
-#     pos = nx.get_node_attributes(G,'pos')
-
-#     print('Created graph')
-
-    
 
 @app.callback(
     Output('network', 'figure'),
@@ -460,14 +445,43 @@ def create_graph(n_clicks, memData):
 
     counts = name_counter_dff['depositions'].apply(pd.Series).stack().value_counts()
 
+
     G = nx.Graph() 
     for i in counts.index:
         dep_names = name_counter_dff[[int(i) in x for x in name_counter_dff['depositions']]]['fullname'].tolist()
         print(dep_names)
         for (name_a, name_b) in itertools.combinations(dep_names, 2):
-            G.add_edge(name_a, name_b, deposition=i)
+            if G.has_edge(name_a, name_b):
+                G[name_a][name_b]['depositions'].append(i)
+                G[name_a][name_b]['weight'] += 1
+                G[name_a][name_b]['text'] += ' %s' % i
+            else:
+                G.add_edge(name_a, name_b, depositions=[i], weight=1, text='Depositions : %s' % i)
 
-    pos = nx.layout.kamada_kawai_layout(G)
+    sq_distance_matrix = build_sq_distance_matrix(name_counter_dff)
+    names = sorted(name_counter_dff['fullname'].tolist())
+
+    optimal_dists = {}
+
+    for row in range(0, len(names)):
+        for col in range(row + 1, len(names)):
+            try:
+                nx.shortest_path(G, source=names[row], target=names[col])
+            except:
+                continue
+                # optimal_dists[(names[row], names[col])] = nx.shortest_path_length(G, names[row], names[col]) * sq_distance_matrix[row][col]
+            else:
+                optimal_dists[(names[row], names[col])] = nx.shortest_path_length(G, names[row], names[col]) + 2 * (1 - sq_distance_matrix[row][col])
+                
+        
+
+    print(optimal_dists)
+
+
+    # pos = nx.layout.kamada_kawai_layout(G, dist=optimal_dists)
+    # pos = nx.layout.kamada_kawai_layout(G)
+    pos = nx.layout.spring_layout(G, k=0.5)
+    
     for node in G.nodes:
         G.nodes[node]['pos'] = list(pos[node])
 
@@ -475,37 +489,27 @@ def create_graph(n_clicks, memData):
 
     print(name_counter_dff.head(20))
     
+    edge_traces = [] 
 
-    edge_trace = go.Scatter(
-    x=[],
-    y=[],
-    line=dict(width=0.5,color='#888'),
-    hoverinfo='none',
-    mode='lines')
+    cl_scale = cl.scales[str(len(counts.index))]['qual']['Paired'] 
 
-    for edge in G.edges():
-        x0, y0 = G.node[edge[0]]['pos']
-        x1, y1 = G.node[edge[1]]['pos']
-        edge_trace['x'] += tuple([x0, x1, None])
-        edge_trace['y'] += tuple([y0, y1, None])
+    for e in G.edges(data=True):
+        # color = cl_scale[counts.index.index(e[2]['weight']['depositions'][0])]
+        x0, y0 = G.node[e[0]]['pos']
+        x1, y1 = G.node[e[1]]['pos']
+        edge_traces.append(go.Scatter(
+                    x= tuple([x0, x1, None]),
+                    y= tuple([y0, y1, None]),
+                    line=dict(width=e[2]['weight'] / 2, color="#888"),
+                    hoverinfo='text',
+                    mode='lines'))
 
     node_trace = go.Scatter(
         x=[],
         y=[],
         text=[],
         mode='markers',
-        hoverinfo='text',
-        marker=dict(
-            showscale=False,
-            # colorscale options
-            #'Greys' | 'YlGnBu' | 'Greens' | 'YlOrRd' | 'Bluered' | 'RdBu' |
-            #'Reds' | 'Blues' | 'Picnic' | 'Rainbow' | 'Portland' | 'Jet' |
-            #'Hot' | 'Blackbody' | 'Earth' | 'Electric' | 'Viridis' |
-            colorscale='YlGnBu',
-            reversescale=True,
-            color=[],
-            size=10,
-            line=dict(width=2)))
+        hoverinfo='text')
 
     for node in G.nodes():
         x, y = G.node[node]['pos']
@@ -514,7 +518,7 @@ def create_graph(n_clicks, memData):
         node_trace['text'] += tuple([str(node)])
 
     return {
-        'data': [edge_trace, node_trace],
+        'data': edge_traces + [node_trace],
         'layout': go.Layout(
             autosize=False,
             height=300,
@@ -522,8 +526,9 @@ def create_graph(n_clicks, memData):
             margin = dict(l=0, r=0, b=0, t=10),
             xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
             yaxis=dict(showgrid=False, zeroline=False, showticklabels=False))
-            
     }
+
+
 
 @app.callback(
     Output('heatmap', 'figure'),
@@ -539,20 +544,7 @@ def create_heatmap(n_clicks, memData):
     name_counter_dff = pd.read_json(memData['person_counter_dff'])
     print(len(name_counter_dff))
     names = sorted(name_counter_dff['fullname'].tolist())
-
-    print(names)
-
-    transformed_names = np.array(names).reshape(-1,1)
-    # print(transformed_names)
-
-    print(transformed_names.shape)
-
-    print(transformed_names[0])
-
-    sq_distance_matrix = squareform(pdist(transformed_names, lambda x,y: ratio(x[0], y[0])))
-
-    print(sq_distance_matrix.shape)
-    print(sq_distance_matrix)
+    
     # print(squareform(distance_matrix))
 
     # return {
@@ -564,7 +556,7 @@ def create_heatmap(n_clicks, memData):
 
     return  {
                 'data': [go.Heatmap(
-                    z=sq_distance_matrix,
+                    z=build_sq_distance_matrix(name_counter_dff),
                     x=names,
                     y=names,
                     colorscale = 'Viridis')],
