@@ -35,6 +35,7 @@ if os.environ['MAPBOX_ACCESS_TOKEN'] is None:
 mapbox_access_token = os.environ['MAPBOX_ACCESS_TOKEN']
 
 app = dash.Dash(__name__)
+server = app.server 
 
 with open('./data/ireland-geo.json') as f:
     geojson = json.load(f)
