@@ -34,6 +34,9 @@ if os.environ['MAPBOX_ACCESS_TOKEN'] is None:
 
 mapbox_access_token = os.environ['MAPBOX_ACCESS_TOKEN']
 
+EXTERNAL_VIEWER_URL = 'http://51.75.162.36:5000'
+EXTERNAL_VIEWER_LINK = EXTERNAL_VIEWER_URL + "/id/%s"
+
 app = dash.Dash(__name__)
 server = app.server 
 
@@ -170,7 +173,8 @@ def initialize():
     return df
 
 df = initialize()
-df = df[['creation_date_parsed', 'deponent_county', 'people_list']]
+df = df[['creation_date_parsed', 'deponent_county', 'people_list', 'filename']]
+df.reset_index(inplace=True)
 
 person_counter_df = create_person_counter_df(df)
 #Create index for depositions.
@@ -208,7 +212,9 @@ app.layout = html.Div(children=[
             className='four columns'),
     html.Div(className='row', children=[
         html.Div(id='debug-div',
-            className='eight columns'),
+            className='four columns'),
+        html.Div(id='link-div',
+            className='four columns', children=[html.P("None selected")]),
         html.Div([html.Button('Graph', id='button-network'), html.Button('Heatmap', id='button-heatmap')],
             id='button-div',
             className='four columns'),
@@ -446,7 +452,6 @@ def create_graph(n_clicks, memData):
 
     counts = name_counter_dff['depositions'].apply(pd.Series).stack().value_counts()
 
-
     G = nx.Graph() 
     for i in counts.index:
         dep_names = name_counter_dff[[int(i) in x for x in name_counter_dff['depositions']]]['fullname'].tolist()
@@ -492,7 +497,7 @@ def create_graph(n_clicks, memData):
     
     edge_traces = [] 
 
-    cl_scale = cl.scales[str(len(counts.index))]['qual']['Paired'] 
+    # cl_scale = cl.scales[str(len(counts.index))]['qual']['Paired'] 
 
     for e in G.edges(data=True):
         # color = cl_scale[counts.index.index(e[2]['weight']['depositions'][0])]
@@ -528,6 +533,73 @@ def create_graph(n_clicks, memData):
             xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
             yaxis=dict(showgrid=False, zeroline=False, showticklabels=False))
     }
+
+
+@app.callback(
+    Output('link-div', 'children'),
+    [Input('network', 'hoverData')],
+    [State('memory', 'data')])
+def select_nodes_in_network(hoverData, memoryData):
+    if hoverData and len(hoverData['points']) > 0:
+        name = hoverData['points'][0]['text']
+        name_counter_dff = pd.read_json(memoryData['person_counter_dff'])
+        appears_in = name_counter_dff[name_counter_dff['fullname'] == name]['depositions'].tolist()
+        print(type(appears_in))
+        print(appears_in)
+         
+        links = [html.A(x, target='_blank', href= EXTERNAL_VIEWER_LINK % df.loc[int(x)]['filename']) for x in appears_in[0]]
+        return links
+    else:
+        raise dash.exceptions.PreventUpdate
+
+@app.callback(
+    Output('heatmap', 'selectedData'),
+    [Input('network', 'hoverData')],)
+def select_nodes_in_network(selectedData):
+    print(selectedData)
+    raise dash.exceptions.PreventUpdate
+
+
+# @app.callback(
+#     Output('network', 'hoverData'),
+#     [Input('heatmap', 'hoverData')],
+#     [State('network', 'figure')])
+# def hover_nodes_in_network(hoverData, networkFigure):
+#     if hoverData and len(hoverData['points']) > 0:
+#         name_1 = hoverData['points'][0]['x']
+#         name_2 = hoverData['points'][0]['y']
+#         print('Selected %s and %s' % (name_1, name_2))
+#         names = [name_1, name_2]
+
+#     if networkFigure is not None:
+#         curve_no = len(networkFigure['data']) - 1
+#         trace = list(filter(lambda x: x['mode'] == 'markers', networkFigure['data']))[0]
+#         hoveredPoints = []
+
+#         for name in names:
+#             name_pos = trace['text'].index(name)
+#             print('%s appears at position %s' % (name, name_pos))
+#             hoveredPoints.append({
+#                     'curveNumber': trace_no,
+#                     'pointNumber' : name_pos,
+#                     'pointIndex': name_pos,
+#                     'x': trace['x'][name_pos],
+#                     'y': trace['y'][name_pos],
+#                     'text': name
+#                 })
+
+#         print(hoveredPoints)
+#         return {'points' : hoveredPoints[:1]}
+#     else:
+#         raise dash.exceptions.PreventUpdate
+
+#     raise dash.exceptions.PreventUpdate    
+
+            
+
+    #{'points': [{'curveNumber': 173, 'pointNumber': 28, 'pointIndex': 28, 'x': -0.7759760926342992, 'y': 0.6059220634290629, 'text': 'thomas roch'}]}
+    
+
 
 
 
