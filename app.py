@@ -418,9 +418,9 @@ def create_map(dff):
                 ) 
             }
             
-def build_sq_distance_matrix(name_counter_dff):
-    names = sorted(name_counter_dff['fullname'].tolist())
+def build_sq_distance_matrix(name_counter_dff, names):
 
+    names = names or sorted(name_counter_dff['fullname'].tolist())
     print(names)
 
     transformed_names = np.array(names).reshape(-1,1)
@@ -464,7 +464,7 @@ def create_graph(n_clicks, memData):
             else:
                 G.add_edge(name_a, name_b, depositions=[i], weight=1, text='Depositions : %s' % i)
 
-    sq_distance_matrix = build_sq_distance_matrix(name_counter_dff)
+    sq_distance_matrix = build_sq_distance_matrix(name_counter_dff, None)
     names = sorted(name_counter_dff['fullname'].tolist())
 
     optimal_dists = {}
@@ -552,12 +552,12 @@ def select_nodes_in_network(hoverData, memoryData):
     else:
         raise dash.exceptions.PreventUpdate
 
-@app.callback(
-    Output('heatmap', 'selectedData'),
-    [Input('network', 'hoverData')],)
-def select_nodes_in_network(selectedData):
-    print(selectedData)
-    raise dash.exceptions.PreventUpdate
+# @app.callback(
+#     Output('heatmap', 'selectedData'),
+#     [Input('network', 'hoverData')],)
+# def select_nodes_in_network(selectedData):
+#     print(selectedData)
+#     raise dash.exceptions.PreventUpdate
 
 
 # @app.callback(
@@ -614,9 +614,16 @@ def create_heatmap(n_clicks, memData):
     (prop['prop_id'] == 'button-heatmap.n_clicks' and prop['value'] == None):
         raise dash.exceptions.PreventUpdate
 
-    name_counter_dff = pd.read_json(memData['person_counter_dff'])
-    print(len(name_counter_dff))
-    names = sorted(name_counter_dff['fullname'].tolist())
+    name_counter_dff = pd.read_json(memData['person_counter_dff']).sort_values(by=['surname'])
+    print(name_counter_dff.head(10))
+    forenames = name_counter_dff['forename'].tolist() 
+    surnames = name_counter_dff['surname'].tolist()
+
+    names = [surnames[i] + ', ' + forenames[i] for i in range(len(forenames))]
+
+    print(forenames)
+    print(surnames)
+    print(names)
     
     # print(squareform(distance_matrix))
 
@@ -629,7 +636,7 @@ def create_heatmap(n_clicks, memData):
 
     return  {
                 'data': [go.Heatmap(
-                    z=build_sq_distance_matrix(name_counter_dff),
+                    z=build_sq_distance_matrix(name_counter_dff, names),
                     x=names,
                     y=names,
                     colorscale = 'Viridis')],
