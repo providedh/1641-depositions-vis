@@ -882,8 +882,8 @@ def filter_df_by_state(df, memData):
         if 'eq' in filter:
             col_name = filter.split(' eq ')[0].replace('"','')
             filter_value = filter.split(' eq ')[1].replace('"','')
-            person_counter_dff = person_counter_dff[person_counter_dff[col_name] == filter_value]
-            person_counter_dff = person_counter_dff[person_counter_dff[col_name] == filter_value]
+            # person_counter_dff = person_counter_dff[person_counter_dff[col_name] == filter_value]
+            person_counter_dff = person_counter_dff[person_counter_dff[col_name].str.contains(filter_value)]
         if ' > ' in filter:
             col_name = filter.split(' > ')[0].replace('"','')
             filter_value = float(filter.split(' > ')[1])
