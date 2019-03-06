@@ -203,7 +203,6 @@ app.layout = html.Div(children=[
                         columns=[{"name" : i, "id": i} for i in ["forename", "surname", "appearances"]],
                         filtering='be',
                         sorting=True,
-                        row_selectable="multi",
                         style_table={
                             'maxHeight': '300px',
                             'overflowY': 'scroll',
@@ -256,7 +255,7 @@ def create_timeline(dff):
                     autobinx=False)],
                 'layout': go.Layout(
                     autosize=False,
-                    margin = dict(l=10, r=0, b=0, t=0),
+                    margin = dict(l=20, r=0, b=30, t=0),
                     xaxis=dict(
                         rangeselector=dict(
                             buttons=list([
@@ -276,7 +275,7 @@ def create_timeline(dff):
                             ])
                         ),
                         rangeslider=dict(
-                            visible = True
+                            visible = False
                         ),
                         type='date'
                     ),
