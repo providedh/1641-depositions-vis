@@ -133,6 +133,8 @@ def initialize():
     #Data amends/conversions
     #Dates
 
+    print(len(df))
+
     df['creation_date_parsed'] = df['creation_date'].map(
         lambda x: date_string_to_date(x) if isinstance(x, str) else x)
 
@@ -190,12 +192,13 @@ app.layout = html.Div(children=[
     html.H3(children='The 1641 Depositions'),
 
     html.Div(className='row', children=[
-        html.Div(dcc.Graph(
-                        id='timeline'),
+        html.Div([dcc.Graph(
+                        id='timeline'), html.Div(id='debug-div')],
             className='four columns'),        
 
-        html.Div(dcc.Graph(
-                        id='map'), 
+        html.Div([dcc.Graph(
+                        id='map'), html.Div(id='link-div', children=[html.P("None selected")]), html.Span('       '), html.Div([html.Button('Graph', id='button-network'), html.Button('Heatmap', id='button-heatmap')],
+            id='button-div')],
             className='four columns'),
 
         html.Div(dash_table.DataTable(
@@ -208,24 +211,14 @@ app.layout = html.Div(children=[
                             'overflowY': 'scroll',
                             'border': 'thin lightgrey solid'
                         }),
-            className='four columns'),
-    html.Div(className='row', children=[
-        html.Div(id='debug-div',
-            className='four columns'),
-        html.Div(id='link-div',
-            className='four columns', children=[html.P("None selected")]),
-        html.Div([html.Button('Graph', id='button-network'), html.Button('Heatmap', id='button-heatmap')],
-            id='button-div',
-            className='four columns'),
-
-    ])]),
+            className='four columns')]),
 
     html.Div(className='row', children=[
         html.Div(dcc.Graph(
-                        id='network'),
+                        id='network', figure={'layout':go.Layout(height=290)}),
             className='eight columns'),
         html.Div(dcc.Graph(
-                        id='heatmap'),
+                        id='heatmap', figure={'layout':go.Layout(height=290)}),
             className='four columns')  
     ]),
 
@@ -279,7 +272,7 @@ def create_timeline(dff):
                         ),
                         type='date'
                     ),
-                    height=300)
+                    height=290)
             }
             
 
@@ -396,7 +389,7 @@ def create_map(dff):
                 )],
                 'layout': go.Layout(
                     autosize=False,
-                    height=300,
+                    height=290,
                     clickmode='event+select',
                     dragmode='zoom',
                     hovermode='closest',
@@ -526,7 +519,7 @@ def create_graph(n_clicks, memData):
         'data': edge_traces + [node_trace],
         'layout': go.Layout(
             autosize=False,
-            height=300,
+            height=290,
             hovermode='closest',
             margin = dict(l=0, r=0, b=0, t=10),
             xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
@@ -642,7 +635,7 @@ def create_heatmap(n_clicks, memData):
                 'layout': go.Layout(
                     autosize=False,
                     margin = dict(l=0, r=0, b=0, t=0),
-                    height=300)
+                    height=290)
             }
 
 
